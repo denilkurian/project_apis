@@ -5,8 +5,6 @@ import urllib
 from sqlalchemy.orm import Session
 
 
-
-
 import urllib.parse
 
 # Original password with special characters
@@ -16,7 +14,7 @@ password = "denil_kurian@123"
 encoded_password = urllib.parse.quote_plus(password)
 
 # Construct the SQLAlchemy connection string
-SQLALCHEMY_DATABASE_URL = f"mysql+mysqlconnector://root:{encoded_password}@localhost/meta"
+SQLALCHEMY_DATABASE_URL = f"mysql+mysqlconnector://root:{encoded_password}@localhost/Testing"
 
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
