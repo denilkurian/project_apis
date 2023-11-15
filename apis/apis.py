@@ -23,7 +23,7 @@ class ConnectionCreate(BaseModel):
     host: str
     user: str
     password: str
-    port: int
+    port: Optional[int] = None
     database: str
 
 class ConnectionResponse(BaseModel):
@@ -74,7 +74,6 @@ async def add_connection(
     db.refresh(new_connection)
 
 
-
     with open('/home/user/.dbt/profiles.yml', 'r') as file:  # Read the YAML file
         data = yaml.load(file, Loader=yaml.FullLoader)
 
@@ -91,6 +90,7 @@ async def add_connection(
             'schema': 'public',
         }
     }
+
     data['denil']['outputs'].update(test_output)  # Update the outputs section in the YAML data
 
     # Write the updated data structure back to the YAML file
@@ -136,7 +136,6 @@ def get_connection(source_id: int,db : Session = Depends(get_db)):
 
 
 
-
 ## API endpoint developed to get all saved sources
 @router.get("/sources", tags=["connections"])
 def list_supported_sources():
@@ -156,39 +155,37 @@ def list_supported_sources():
 
 
 # # API to Perform a Connection to Pull Metadata
-Session = sessionmaker()
-metadata = MetaData()
 
-def fetch_metadata(connection_details: ConnectionCreate):
-    # Prepare the connection string based on the received details
-    connection_string = ''
-    if connection_details.source == SupportedDatabases.mysql:
-        connection_string = f"mysql+mysqlconnector://{connection_details.user}:{connection_details.password}@{connection_details.host}:{connection_details.port}/{connection_details.database}"
-    elif connection_details.source == SupportedDatabases.postgres:
-        connection_string = f"postgresql://{connection_details.user}:{connection_details.password}@{connection_details.host}:{connection_details.port}/{connection_details.database}"
-    
-    # Fetch from the specified database
-    engine = create_engine(connection_string)
-    Session.configure(bind=engine)
-    metadata = MetaData()
-    metadata.reflect(bind=engine)
-    metadata_str = str(metadata.tables.values())
-
-    print("data from database")
-    return metadata_str
-
-# Define the API endpoint
-@router.post("/any_db_metadata/", tags=["open source metadata"])
-async def any_db_metadata(connection_details: ConnectionCreate):
+@router.post("/connections/connect", tags=["any metadata"])
+def perform_connection_to_source(source_info: ConnectionCreate):
+    """
+    Perform a connection to a data source and pull metadata.
+    """
+    # Use source_info to connect to the source and pull metadata.
+    source_db_url = ""
+    db = source_info.source
+    connection_string = (
+        source_info.user + ':' + source_info.password + '@' +
+        source_info.host + ':' + source_info.port + '/' + source_info.database  
+    )
     try:
-        metadata_str = fetch_metadata(connection_details)
-        return metadata_str
+        if db not in SupportedDatabases:
+            return {"error": "Unsupported database type"}
+        if db in ["mysql", "postgres"]:
+            if db == 'mysql':
+                source_db_url = "mysql+mysqlconnector://" + connection_string
+            else:
+                source_db_url = "postgresql://" + connection_string
+            
+           
+            engine = create_engine(source_db_url)
+            SessionLocal.configure(bind=engine)
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata_str = str(metadata.tables.values())
+            return {"source_info": source_info, "metadata": metadata_str}
     except Exception as e:
-        raise HTTPException(status_code=500, detail={"error": str(e)})
-
-
-
-
+        return {"error": str(e)}
 
 
 
@@ -232,7 +229,14 @@ async def fetch_tables(connection_id: int, db = Depends(get_db)):
 
 
 
-# # API to Provide a List of Unique Identifiers for a Table in a Source
+
+
+
+
+
+
+
+# API to Provide a List of Unique Identifiers for a Table in a Source
 @router.get("/connections/{connection_id}/table/{table_name}/unique_identifiers", tags=["unique identifiers"])
 async def unique_identifiers(connection_id: int, table_name: str, db = Depends(get_db)):
     connection = db.query(Connection).filter(Connection.id == connection_id).first()
@@ -257,6 +261,62 @@ async def unique_identifiers(connection_id: int, table_name: str, db = Depends(g
     return {"unique_identifiers": unique_identifiers}
 
 
+
+
+
+
+
+
+
+
+
+
+
+from sqlalchemy import create_engine, text,select,Table
+# API to Provide table values
+
+
+@router.get("/connections/{connection_id}/table/{table_name}/table_values", tags=["table values"])
+async def table_values(connection_id: int, table_name: str, db: Session = Depends(get_db)):
+    connection = db.query(Connection).filter(Connection.id == connection_id).first()
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    if connection.source == "mysql":
+        source_db_url = f"mysql+mysqlconnector://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
+    elif connection.source == "postgresql":
+        source_db_url = f"postgresql://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported database source")
+
+    engine = create_engine(source_db_url)
+
+    try:
+        # Use the engine to connect
+        with engine.connect() as connection:
+            inspector = inspect(engine)
+            
+            # Fetch columns information
+            columns = inspector.get_columns(table_name)
+            column_names = [column["name"] for column in columns]
+
+            # Build a dynamic select statement based on columns
+            select_query = f"SELECT {', '.join(column_names)} FROM {table_name}"
+
+            # Execute the query and fetch all rows
+            result = connection.execute(text(select_query))
+            rows = result.fetchall()
+
+            # Convert rows to dictionaries
+            table_values = [dict(zip(column_names, row)) for row in rows]
+
+            # Check if any rows were returned
+            if not table_values:
+                raise HTTPException(status_code=404, detail=f"No data found in the table '{table_name}'")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Error: {e}")
+
+    return {"table_values": table_values}
 
 
 
@@ -345,6 +405,7 @@ def get_all_connetion(db: Session = Depends(get_db)):
 
 
 
+import os
 import subprocess
 
 # API to Trigger a Join from Two Source Table Connections
@@ -381,9 +442,10 @@ def perform_join(joint_info: JoinDetails, db: Session = Depends(get_db)):
     filename = new_table + ".sql"
     sql_file_path = f"{directory}/{filename}"
 
-
     # Build the SQL query dynamically
-    sql_query = f"SELECT\n\t"
+    # changing view to table 
+    view_to_table = "{{ config(materialized='table') }}"
+    sql_query = f"{view_to_table}\n\tSELECT\n\t"
     # Generate SELECT clause for table1
     select_table1 = [f"{table1}.{col} AS {table1_col[col]}" for col in table1_col]
     sql_query += ",\n\t".join(select_table1)
@@ -404,12 +466,20 @@ def perform_join(joint_info: JoinDetails, db: Session = Depends(get_db)):
 
     # The .sql file is now created with your SQL queries
 
-
     project_location = "./dbt_pro/denil"
 
     # Use subprocess or another method to run dbt commands from the remote location
     result = subprocess.run(["dbt", "run", "--project-dir", project_location], capture_output=True, text=True)
-    return {"stdout": result.stdout, "stderr": result.stderr}
+    output = {"stdout": result.stdout, "stderr": result.stderr}
+
+    os.remove(sql_file_path)
+    return output
+
+
+
+
+
+
 
 
 
