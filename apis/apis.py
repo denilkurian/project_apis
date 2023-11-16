@@ -100,7 +100,7 @@ async def add_connection(
     return new_connection
 
 
-
+    
 
 
 
@@ -152,40 +152,40 @@ def list_supported_sources():
 
 
 
-
+import traceback
 
 # # API to Perform a Connection to Pull Metadata
 
 @router.post("/connections/connect", tags=["any metadata"])
 def perform_connection_to_source(source_info: ConnectionCreate):
-    """
-    Perform a connection to a data source and pull metadata.
-    """
-    # Use source_info to connect to the source and pull metadata.
-    source_db_url = ""
-    db = source_info.source
-    connection_string = (
-        source_info.user + ':' + source_info.password + '@' +
-        source_info.host + ':' + source_info.port + '/' + source_info.database  
-    )
     try:
-        if db not in SupportedDatabases:
-            return {"error": "Unsupported database type"}
-        if db in ["mysql", "postgres"]:
-            if db == 'mysql':
-                source_db_url = "mysql+mysqlconnector://" + connection_string
-            else:
-                source_db_url = "postgresql://" + connection_string
-            
-           
-            engine = create_engine(source_db_url)
-            SessionLocal.configure(bind=engine)
-            metadata = MetaData()
-            metadata.reflect(bind=engine)
-            metadata_str = str(metadata.tables.values())
-            return {"source_info": source_info, "metadata": metadata_str}
+        if source_info.source not in SupportedDatabases:
+            raise HTTPException(status_code=400, detail="Unsupported database type")
+
+        connection_string = (
+            source_info.user + ':' + source_info.password + '@' +
+            source_info.host + ':' + str(source_info.port) + '/' + source_info.database
+        )
+
+        source_db_url = ""
+        if source_info.source == 'mysql':
+            source_db_url = "mysql+mysqlconnector://" + connection_string
+        elif source_info.source == 'postgresql':
+            source_db_url = "postgresql://" + connection_string
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported database type")
+
+        engine = create_engine(source_db_url, pool_size=5, max_overflow=10)
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        metadata = MetaData()
+        metadata.reflect(bind=engine)
+        metadata_str = str(metadata.tables.values())
+        return {"source_info": source_info.dict(), "metadata": metadata_str}
     except Exception as e:
-        return {"error": str(e)}
+        error_message = str(e)
+        print(f"Error: {error_message}")
+        return {"error": error_message}
+
 
 
 
@@ -197,24 +197,52 @@ def perform_connection_to_source(source_info: ConnectionCreate):
 
 
 # API to Provide a List of Data Source Tables in a Connection
+from typing import Optional
+
 @router.get("/connections/{connection_id}/tables", tags=["display tables"])
-async def fetch_tables(connection_id: int, db = Depends(get_db)):
-    connection = db.query(Connection).filter(Connection.id == connection_id).first()
-    if not connection:
-        raise HTTPException(status_code=404, detail="Connection not found")
+async def fetch_tables(
+    connection_id: int,
+    page: Optional[int] = 1,
+    db=Depends(get_db),
+):
+    try:
+        connection = db.query(Connection).filter(Connection.id == connection_id).first()
+        if not connection:
+            raise HTTPException(status_code=404, detail="Connection not found")
 
-    if connection.source == "mysql":
-        source_db_url = f"mysql+mysqlconnector://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
-    elif connection.source == "postgresql":
-        source_db_url = f"postgresql://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported database source")
+        if connection.source == "mysql":
+            source_db_url = f"mysql+mysqlconnector://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
+        elif connection.source == "postgresql":
+            source_db_url = f"postgresql://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported database source")
 
-    engine = create_engine(source_db_url)
-    inspector = inspect(engine)
-    table_list = inspector.get_table_names()
+        engine = create_engine(source_db_url)
+        inspector = inspect(engine)
+        table_list = inspector.get_table_names()
 
-    return {"tables": table_list}
+        total_items = len(table_list)
+        items_per_page = 10
+        total_pages = -(-total_items // items_per_page)  # Ceiling division to calculate total pages
+
+        start_idx = (page - 1) * items_per_page
+        end_idx = start_idx + items_per_page
+        paginated_tables = table_list[start_idx:end_idx]
+
+        if not paginated_tables:
+            return {"error": "No more pages"}
+
+        return {
+            "tables": paginated_tables,
+            "total_pages": total_pages,
+            "current_page": page,
+            "total_items": total_items,
+        }
+
+    except Exception as e:
+        error_message = str(e)
+        print(f"Error: {error_message}")
+        return {"error": error_message}
 
 
 
@@ -234,36 +262,92 @@ async def fetch_tables(connection_id: int, db = Depends(get_db)):
 
 
 
+
+
+from sqlalchemy.exc import NoSuchTableError
 
 
 # API to Provide a List of Unique Identifiers for a Table in a Source
 @router.get("/connections/{connection_id}/table/{table_name}/unique_identifiers", tags=["unique identifiers"])
 async def unique_identifiers(connection_id: int, table_name: str, db = Depends(get_db)):
-    connection = db.query(Connection).filter(Connection.id == connection_id).first()
-    if not connection:
-        raise HTTPException(status_code=404, detail="Connection not found")
+    try:    
+        connection = db.query(Connection).filter(Connection.id == connection_id).first()
+        if not connection:
+            raise HTTPException(status_code=404, detail="Connection not found")
 
-    if connection.source == "mysql":
-        source_db_url = f"mysql+mysqlconnector://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
-    elif connection.source == "postgresql":
-        source_db_url = f"postgresql://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported database source")
+        if connection.source == "mysql":
+            source_db_url = f"mysql+mysqlconnector://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
+        elif connection.source == "postgresql":
+            source_db_url = f"postgresql://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported database source")
 
-    engine = create_engine(source_db_url)
-    inspector = inspect(engine)
+        engine = create_engine(source_db_url)
+        inspector = inspect(engine)
 
-    try:
-        unique_identifiers = inspector.get_unique_constraints(table_name)
+        try:
+            unique_identifiers = inspector.get_unique_constraints(table_name)
+        except NoSuchTableError:
+            raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found in the database")
+
+        return {"unique_identifiers": unique_identifiers}
+
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found in the database")
-
-    return {"unique_identifiers": unique_identifiers}
-
-
+        error_message = str(e)
+        print(f"Error: {error_message}")
+        return {"error": error_message}
 
 
 
+
+
+
+
+
+
+
+##########  table metadata
+@router.get("/connections/{connection_id}/table/{table_name}/column_info", tags=["column information"])
+async def column_info(connection_id: int, table_name: str, db=Depends(get_db)):
+    try:
+        connection = db.query(Connection).filter(Connection.id == connection_id).first()
+        if not connection:
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        if connection.source == "mysql":
+            source_db_url = f"mysql+mysqlconnector://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
+        elif connection.source == "postgresql":
+            source_db_url = f"postgresql://{connection.user}:{connection.password}@{connection.host}:{connection.port}/{connection.database}"
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported database source")
+
+        engine = create_engine(source_db_url)
+        inspector = inspect(engine)
+
+        try:
+            column_names = [column['name'] for column in inspector.get_columns(table_name)]
+            unique_identifiers = [constraint['column_names'] for constraint in inspector.get_unique_constraints(table_name)]
+            primary_keys = inspector.get_pk_constraint(table_name)['constrained_columns']
+            foreign_keys = inspector.get_foreign_keys(table_name)
+
+        except NoSuchTableError:
+            raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found in the database")
+
+        return {
+            "column_names": column_names,
+            "unique_identifiers": unique_identifiers,
+            "primary_keys": primary_keys,
+            "foreign_keys":foreign_keys
+        }
+    except Exception as e:
+        error_message = str(e)
+        print(f"Error: {error_message}")
+        return {"error": error_message}
+
+
+
+
+  
 
 
 
