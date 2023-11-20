@@ -263,7 +263,6 @@ async def fetch_tables(
 
 
 
-
 from sqlalchemy.exc import NoSuchTableError
 
 
@@ -329,6 +328,8 @@ async def column_info(connection_id: int, table_name: str, db=Depends(get_db)):
             unique_identifiers = [constraint['column_names'] for constraint in inspector.get_unique_constraints(table_name)]
             primary_keys = inspector.get_pk_constraint(table_name)['constrained_columns']
             foreign_keys = inspector.get_foreign_keys(table_name)
+            count = len(column_names.get("column_names", []))
+
 
         except NoSuchTableError:
             raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found in the database")
@@ -337,8 +338,10 @@ async def column_info(connection_id: int, table_name: str, db=Depends(get_db)):
             "column_names": column_names,
             "unique_identifiers": unique_identifiers,
             "primary_keys": primary_keys,
-            "foreign_keys":foreign_keys
+            "foreign_keys":foreign_keys,
+            "ttt":count
         }
+    
     except Exception as e:
         error_message = str(e)
         print(f"Error: {error_message}")
@@ -486,6 +489,7 @@ def get_all_connetion(db: Session = Depends(get_db)):
 #     """
 #     # Implement logic to perform the join operation and return the result.
 #    return {...}
+
 
 
 
