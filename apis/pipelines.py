@@ -47,7 +47,6 @@ router = APIRouter()
 
 
 
-
 # Pydantic models for data validation
 class PipelineBase(BaseModel):
     name: str
@@ -124,8 +123,6 @@ def list_pipelines(skip: int = 0, limit: int = 10):
 
 
 
-
-
 @router.post("/pipelines/{pipeline_id}/status/",response_model=PipelineStatuses)
 def create_pipeline_status(pipeline_id: int, status: PipelineStatusCreate):
     db = SessionLocal()
@@ -153,6 +150,10 @@ def list_pipeline_statuses(pipeline_id: int, skip: int = 0, limit: int = 20):
     statuses = db.query(PipelineStatus).filter(PipelineStatus.pipeline_id == pipeline_id).offset(skip).limit(limit).all()
     db.close()
     return statuses
+
+
+
+
 
 
 
