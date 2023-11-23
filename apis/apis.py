@@ -288,9 +288,15 @@ async def unique_identifiers(connection_id: int, table_name: str, db = Depends(g
             unique_identifiers = inspector.get_unique_constraints(table_name)
             primary_keys = inspector.get_pk_constraint(table_name)
         except NoSuchTableError:
-            raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found in the database")
+            return HTTPException(status_code=404, detail=f"Table '{table_name}' not found in the database")
 
-        return {"unique_identifiers": unique_identifiers , "primary_keys": primary_keys}
+        # Extract only values and represent as comma-separated strings
+        unique_identifiers_result = list(
+            [", ".join(ui["column_names"]) for ui in unique_identifiers]
+        )
+        primary_keys_result = ", ".join(primary_keys["constrained_columns"])
+
+        return {"unique_columns": unique_identifiers_result, "primary_keys_columns": primary_keys_result}
 
     except Exception as e:
         error_message = str(e)
@@ -329,7 +335,7 @@ async def column_info(connection_id: int, table_name: str, db=Depends(get_db)):
             unique_identifiers = [constraint['column_names'] for constraint in inspector.get_unique_constraints(table_name)]
             primary_keys = inspector.get_pk_constraint(table_name)['constrained_columns']
             foreign_keys = inspector.get_foreign_keys(table_name)
-            count = len(column_names.get("column_names", []))
+            count = len(column_names)
 
 
         except NoSuchTableError:
@@ -340,7 +346,7 @@ async def column_info(connection_id: int, table_name: str, db=Depends(get_db)):
             "unique_identifiers": unique_identifiers,
             "primary_keys": primary_keys,
             "foreign_keys":foreign_keys,
-            "ttt":count
+            "count of columns":count
         }
     
     except Exception as e:
