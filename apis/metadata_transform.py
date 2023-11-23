@@ -1,5 +1,5 @@
 
-from database_config.models import IngestionMetadata,get_db,TransformationMetadata
+from database_config.models import IngestionMetadata,get_db,TransformationMetadata,MetricsMetadata
 from fastapi import HTTPException,APIRouter,Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import Enum
@@ -95,7 +95,6 @@ def transformation(ingestion_id:int,db:Session=Depends(get_db)):
 
 
 ## update transformation metadata posting into Transformationmetadata table  
-
 ## for completion
 @router.put("/transformationcomplete/{transformation_id}/", tags=["transformation"])
 def update_transformation(transformation_id: int, db: Session = Depends(get_db)):
@@ -105,7 +104,7 @@ def update_transformation(transformation_id: int, db: Session = Depends(get_db))
             db.close()
             raise HTTPException(status_code=404, detail=f"No transformation with id {transformation_id}")
 
-        # Update the fields with the new data
+       
         transformation_data.transformation_end_datetime = datetime.utcnow()
         transformation_data.status = "Completed"       
         db.commit()
@@ -128,7 +127,6 @@ def update_transformation(transformation_id: int, db: Session = Depends(get_db))
             db.close()
             raise HTTPException(status_code=404, detail=f"No transformation with id {transformation_id}")
 
-        # Update the fields with the new data
         transformation_data.transformation_end_datetime = datetime.utcnow()
         transformation_data.error_message = "Error job task"
         transformation_data.status = "Failed"       
@@ -143,6 +141,59 @@ def update_transformation(transformation_id: int, db: Session = Depends(get_db))
 
 
         
+
+
+class Metric(BaseModel):
+    metric_name : str
+    metric_value : float
+
+
+
+###### for getting metric metadata
+@router.post("/metricmetadata/{transformation_id}/",tags=["metricmetadata"])
+def metric_metadata(data:Metric, transformation_id:int,db: Session = Depends(get_db)):
+    transformation_data = db.query(TransformationMetadata).filter(TransformationMetadata.id == transformation_id).first()
+        
+    if transformation_data is None:
+        db.close()
+        raise HTTPException(status_code=404, detail=f"No transformation with id {transformation_id}")
+    
+
+    ######### doubts for more than one meric data 
+    # metric_data_available = db.query(MetricsMetadata).filter(MetricsMetadata.transformation_id == transformation_id).first()
+
+    # if metric_data_available:
+    #     raise HTTPException(status_code=404, detail=f"Transformation already added {transformation_id}")
+
+    
+    metric_data = MetricsMetadata(transformation_id=transformation_id,**data.dict())
+    db.add(metric_data)
+    db.commit()
+    db.refresh(metric_data)
+    db.close()
+    return {"message": f"added metric data to {transformation_id}", "metric_id": metric_data.metric_id}
+    
+        
+
+
+         
+###### endpoint to get  transformation metadata with metric details
+@router.get("/transformationmetadata/{transformation_id}/",tags=["transformation"])
+def get_transforamtion(transformation_id:int,db:Session=Depends(get_db)):
+    try:
+        transform_data = db.query(TransformationMetadata).filter(TransformationMetadata.id == transformation_id).first()
+        metric_data = db.query(MetricsMetadata).filter(MetricsMetadata.transformation_id == transformation_id).all()
+        db.close()
+        return {"transformation_data":transform_data,"metric_data":metric_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"error": str(e)})
+
+
+        
+
+        
+
+
 
 
 

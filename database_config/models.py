@@ -7,16 +7,12 @@ from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy import Enum
 
 
-
 import urllib.parse
 
-# Original password with special characters
 password = "denil_kurian@123"
 
-# Encode the password
 encoded_password = urllib.parse.quote_plus(password)
 
-# Construct the SQLAlchemy connection string
 SQLALCHEMY_DATABASE_URL = f"mysql+mysqlconnector://root:{encoded_password}@localhost:3306/Testing"
 
 
@@ -28,8 +24,8 @@ Base = declarative_base()
 
 ########## all connection
 class Connection(Base):
-
     __tablename__ = "connection"
+    
     id = Column(Integer, primary_key=True, index=True)
     source = Column(String(255),nullable = True,index = True)
     host = Column(String(255),nullable = True,index = True)
@@ -106,6 +102,7 @@ class MetricsMetadata(Base):
     transformation_id = Column(Integer, ForeignKey("transformation.id"))
     metric_name = Column(String(250))
     metric_value = Column(DECIMAL(10,2),nullable=False)
+
 
 
 class  PipelineMetadata(Base):

@@ -286,10 +286,11 @@ async def unique_identifiers(connection_id: int, table_name: str, db = Depends(g
 
         try:
             unique_identifiers = inspector.get_unique_constraints(table_name)
+            primary_keys = inspector.get_pk_constraint(table_name)
         except NoSuchTableError:
             raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found in the database")
 
-        return {"unique_identifiers": unique_identifiers}
+        return {"unique_identifiers": unique_identifiers , "primary_keys": primary_keys}
 
     except Exception as e:
         error_message = str(e)
